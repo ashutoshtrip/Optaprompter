@@ -6,48 +6,49 @@ interface Props {
   onSignedIn: (session: Session) => void;
 }
 
-type Mode = 'magic' | 'password' | 'signup';
-
 export default function AuthGate({ supabase, onSignedIn }: Props) {
-  const [mode, setMode] = useState<Mode>('magic');
   const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
   const [otp, setOtp] = useState('');
   const [otpSent, setOtpSent] = useState(false);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [info, setInfo] = useState<string | null>(null);
 
-  const reset = () => { setErr(null); setInfo(null); };
-
-  const sendMagic = async (e: React.FormEvent) => {
+  const sendCode = async (e: React.FormEvent) => {
     e.preventDefault();
-    reset();
+    setErr(null);
+    setInfo(null);
     setBusy(true);
     try {
-      // shouldCreateUser: false → don't silently create a new account if
-      // the email is unknown. Flip to true if you want desktop-only signup.
       const { error } = await supabase.auth.signInWithOtp({
-        email,
+        email: email.trim(),
         options: { shouldCreateUser: true },
       });
       if (error) throw error;
       setOtpSent(true);
-      setInfo('Check your email for a 6-digit code and paste it below.');
+      setInfo('Check your email for a 6-digit code.');
     } catch (e) {
-      setErr(e instanceof Error ? e.message : 'Failed to send code');
+      // eslint-disable-next-line no-console
+      console.error('[OptaPrompter auth]', e);
+      const msg =
+        (e as { message?: string; error_description?: string; status?: number; code?: string })?.message
+        || (e as { error_description?: string })?.error_description
+        || JSON.stringify(e);
+      const status = (e as { status?: number })?.status;
+      const code = (e as { code?: string })?.code;
+      setErr([msg, status && `HTTP ${status}`, code].filter(Boolean).join(' · '));
     } finally {
       setBusy(false);
     }
   };
 
-  const verifyOtp = async (e: React.FormEvent) => {
+  const verify = async (e: React.FormEvent) => {
     e.preventDefault();
-    reset();
+    setErr(null);
     setBusy(true);
     try {
       const { data, error } = await supabase.auth.verifyOtp({
-        email,
+        email: email.trim(),
         token: otp.trim(),
         type: 'email',
       });
@@ -61,47 +62,14 @@ export default function AuthGate({ supabase, onSignedIn }: Props) {
     }
   };
 
-  const submitPassword = async (e: React.FormEvent) => {
-    e.preventDefault();
-    reset();
-    setBusy(true);
-    try {
-      const req =
-        mode === 'signup'
-          ? supabase.auth.signUp({ email, password })
-          : supabase.auth.signInWithPassword({ email, password });
-      const { data, error } = await req;
-      if (error) throw error;
-      if (data.session) onSignedIn(data.session);
-      else setInfo('Check your email to confirm the account, then sign in.');
-    } catch (e) {
-      setErr(e instanceof Error ? e.message : 'Sign-in failed');
-    } finally {
-      setBusy(false);
-    }
-  };
-
   return (
     <div className="auth">
-      <form
-        onSubmit={
-          mode === 'magic'
-            ? otpSent
-              ? verifyOtp
-              : sendMagic
-            : submitPassword
-        }
-        className="auth-card"
-      >
+      <form onSubmit={otpSent ? verify : sendCode} className="auth-card">
         <h2>OptaPrompter</h2>
         <p className="muted">
-          {mode === 'magic'
-            ? otpSent
-              ? 'Enter the 6-digit code we emailed you.'
-              : "We'll email you a 6-digit sign-in code."
-            : mode === 'signup'
-            ? 'Create an account with email + password.'
-            : 'Sign in with email + password.'}
+          {otpSent
+            ? 'Enter the 6-digit code we emailed you.'
+            : "Enter your email — we'll send you a sign-in code."}
         </p>
 
         <input
@@ -110,31 +78,21 @@ export default function AuthGate({ supabase, onSignedIn }: Props) {
           value={email}
           onChange={(e) => setEmail(e.target.value)}
           required
-          disabled={mode === 'magic' && otpSent}
+          autoFocus={!otpSent}
+          disabled={otpSent}
         />
 
-        {mode === 'magic' && otpSent && (
+        {otpSent && (
           <input
             type="text"
             inputMode="numeric"
-            autoFocus
             placeholder="123456"
             value={otp}
             onChange={(e) => setOtp(e.target.value)}
             required
             minLength={6}
             maxLength={8}
-          />
-        )}
-
-        {mode !== 'magic' && (
-          <input
-            type="password"
-            placeholder="Password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            required
-            minLength={6}
+            autoFocus
           />
         )}
 
@@ -142,53 +100,23 @@ export default function AuthGate({ supabase, onSignedIn }: Props) {
         {err && <p className="err">{err}</p>}
 
         <button disabled={busy}>
-          {busy
-            ? '…'
-            : mode === 'magic'
-            ? otpSent
-              ? 'Verify code'
-              : 'Send code'
-            : mode === 'signup'
-            ? 'Create account'
-            : 'Sign in'}
+          {busy ? '…' : otpSent ? 'Verify code' : 'Send code'}
         </button>
 
-        {mode === 'magic' && otpSent && (
+        {otpSent && (
           <button
             type="button"
             className="link"
-            onClick={() => { setOtpSent(false); setOtp(''); reset(); }}
+            onClick={() => {
+              setOtpSent(false);
+              setOtp('');
+              setErr(null);
+              setInfo(null);
+            }}
           >
             Use a different email
           </button>
         )}
-
-        <div style={{ display: 'flex', gap: 12, justifyContent: 'space-between' }}>
-          <button
-            type="button"
-            className="link"
-            onClick={() => { setMode('magic'); setOtpSent(false); reset(); }}
-            disabled={mode === 'magic'}
-          >
-            Email code
-          </button>
-          <button
-            type="button"
-            className="link"
-            onClick={() => { setMode('password'); reset(); }}
-            disabled={mode === 'password'}
-          >
-            Password
-          </button>
-          <button
-            type="button"
-            className="link"
-            onClick={() => { setMode('signup'); reset(); }}
-            disabled={mode === 'signup'}
-          >
-            Sign up
-          </button>
-        </div>
       </form>
     </div>
   );
