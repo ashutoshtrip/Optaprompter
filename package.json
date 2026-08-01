@@ -1,0 +1,20 @@
+{
+  "name": "optaprompter",
+  "version": "0.1.0",
+  "private": true,
+  "workspaces": [
+    "web",
+    "desktop",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev:web": "npm run dev --workspace=web",
+    "dev:desktop": "npm run tauri dev --workspace=desktop",
+    "build:web": "npm run build --workspace=web",
+    "build:desktop": "npm run tauri build --workspace=desktop",
+    "build:shared": "npm run build --workspace=@optaprompter/shared"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

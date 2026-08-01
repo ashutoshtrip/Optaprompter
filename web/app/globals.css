@@ -1,0 +1,52 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+html, body { background: #0b0d10; color: #e5e7eb; }
+
+/* Tiptap prose */
+.ProseMirror {
+  outline: none;
+  min-height: 60vh;
+  padding: 24px;
+  font-size: 18px;
+  line-height: 1.7;
+}
+.ProseMirror p.is-editor-empty:first-child::before {
+  color: #6b7280;
+  content: attr(data-placeholder);
+  float: left;
+  height: 0;
+  pointer-events: none;
+}
+.ProseMirror h1 { font-size: 2rem; font-weight: 700; margin: 1.4rem 0 0.6rem; }
+.ProseMirror h2 { font-size: 1.5rem; font-weight: 600; margin: 1.2rem 0 0.5rem; }
+.ProseMirror h3 { font-size: 1.2rem; font-weight: 600; margin: 1rem 0 0.4rem; }
+.ProseMirror blockquote { border-left: 3px solid #374151; padding-left: 1rem; color: #9ca3af; }
+.ProseMirror code { background: #1f2937; padding: 2px 6px; border-radius: 4px; font-size: 0.9em; }
+.ProseMirror pre { background: #1f2937; padding: 12px; border-radius: 6px; overflow-x: auto; }
+.ProseMirror ul, .ProseMirror ol { padding-left: 1.5rem; }
+
+/* Collaboration cursor labels */
+.collaboration-cursor__caret {
+  border-left: 1px solid;
+  border-right: 1px solid;
+  margin-left: -1px;
+  margin-right: -1px;
+  pointer-events: none;
+  position: relative;
+  word-break: normal;
+}
+.collaboration-cursor__label {
+  border-radius: 3px 3px 3px 0;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 600;
+  left: -1px;
+  line-height: normal;
+  padding: 1px 6px;
+  position: absolute;
+  top: -1.4em;
+  user-select: none;
+  white-space: nowrap;
+}
