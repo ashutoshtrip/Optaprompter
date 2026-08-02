@@ -2,6 +2,7 @@ import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import { createServerSupabase } from '@/lib/supabase/server';
 import { createScript, deleteScript } from './actions';
+import DownloadDesktopButton from '@/components/DownloadDesktopButton';
 
 export const dynamic = 'force-dynamic';
 
@@ -17,15 +18,32 @@ export default async function Dashboard() {
 
   return (
     <main className="min-h-screen max-w-4xl mx-auto px-6 py-10 space-y-8">
-      <header className="flex items-center justify-between">
+      <header className="flex items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-semibold">Your scripts</h1>
           <p className="text-sm text-gray-400">{user.email}</p>
         </div>
-        <form action="/auth/signout" method="post">
-          <button className="text-sm text-gray-400 hover:text-white">Sign out</button>
-        </form>
+        <div className="flex items-center gap-3">
+          <DownloadDesktopButton variant="ghost" label="Get desktop app" />
+          <form action="/auth/signout" method="post">
+            <button className="text-sm text-gray-400 hover:text-white">Sign out</button>
+          </form>
+        </div>
       </header>
+
+      <details className="bg-panel border border-white/5 rounded-lg p-3 text-sm">
+        <summary className="cursor-pointer text-gray-300 select-none">
+          How to install the desktop overlay →
+        </summary>
+        <ol className="mt-3 pl-5 list-decimal text-gray-400 space-y-1.5">
+          <li>Click <span className="text-gray-200">Get desktop app</span> above, download the <code className="text-xs">.dmg</code>.</li>
+          <li>Open it, drag OptaPrompter to <code className="text-xs">Applications</code>.</li>
+          <li><strong>First launch:</strong> right-click OptaPrompter in Applications → <strong>Open</strong> (bypasses macOS &quot;unidentified developer&quot; warning).</li>
+          <li>Sign in with this same email.</li>
+          <li>Create a script here → pick it in the overlay → typing here reflects on the overlay live.</li>
+          <li><code className="text-xs">Cmd + Shift + P</code> toggles click-through so you can click through it to PowerPoint / Chrome.</li>
+        </ol>
+      </details>
 
       <form
         action={createScript}
