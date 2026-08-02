@@ -39,6 +39,7 @@ export default function Reader({ supabase, script, onLeave }: Props) {
       scriptId: script.id,
       writable: false, // reader never writes back
       onStatus: setStatus,
+      debug: true,
     });
     return () => { void provider.destroy(); };
   }, [doc, supabase, script.id, script.roomId]);

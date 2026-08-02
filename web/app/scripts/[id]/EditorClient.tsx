@@ -49,6 +49,7 @@ export default function EditorClient({ scriptId, roomId, title, user }: Props) {
       >[0]['awareness'],
       onStatus: setStatus,
       writable: true,
+      debug: true,
     });
 
     // Merge remote awareness snapshots (broadcast via the provider) into

@@ -1,14 +1,17 @@
 /**
  * SupabaseYjsProvider — a minimal Yjs sync provider over Supabase Realtime.
  *
- * Two channels of communication:
- *  - **broadcast** (transient): every local Y.Doc update is broadcast to peers
- *    subscribed to `room:{roomId}`. Awareness updates ride the same channel.
- *  - **snapshot** (durable): on a debounced timer, the full `Y.encodeStateAsUpdate`
- *    is written to `scripts.y_state` so late joiners can bootstrap.
- *
- * On connect the provider fetches the row snapshot, applies it, then joins the
- * broadcast channel. From that point onward peers converge via CRDT merge.
+ *  - **broadcast** (transient): local Y.Doc updates go out on the
+ *    `room:{roomId}` channel. Awareness updates ride the same channel.
+ *  - **snapshot** (durable): every 2s (debounced) the full
+ *    `Y.encodeStateAsUpdate(doc)` is base64-encoded and stored in
+ *    `scripts.y_state` (a `text` column). Late joiners fetch this to
+ *    bootstrap.
+ *  - **handshake** (live catch-up): whenever a peer subscribes, it sends a
+ *    `sync-request`. Any peer that receives one replies with a
+ *    `sync-response` containing its full state. This is the belt-and-
+ *    suspenders path so the desktop reader converges even if the snapshot
+ *    hasn't been flushed yet.
  */
 
 import type { RealtimeChannel, SupabaseClient } from '@supabase/supabase-js';
@@ -29,15 +32,16 @@ export interface SupabaseYjsOptions {
   roomId: string;
   scriptId: string;
   awareness?: AwarenessLike;
-  /** ms between durable snapshot flushes (default 2000) */
   flushIntervalMs?: number;
-  /** true for editor (writes back), false for read-only reader */
   writable?: boolean;
   onStatus?: (status: 'connecting' | 'synced' | 'disconnected' | 'error') => void;
+  debug?: boolean;
 }
 
 type BroadcastPayload =
   | { kind: 'update'; origin: number; b64: string }
+  | { kind: 'sync-request'; origin: number }
+  | { kind: 'sync-response'; origin: number; b64: string }
   | { kind: 'awareness'; origin: number; b64: string };
 
 const toB64 = (u8: Uint8Array): string => {
@@ -64,6 +68,7 @@ export class SupabaseYjsProvider {
   private flushIntervalMs: number;
   private writable: boolean;
   private onStatus?: SupabaseYjsOptions['onStatus'];
+  private debug: boolean;
   private dirty = false;
   private disposed = false;
 
@@ -76,11 +81,19 @@ export class SupabaseYjsProvider {
     this.flushIntervalMs = opts.flushIntervalMs ?? 2000;
     this.writable = opts.writable ?? true;
     this.onStatus = opts.onStatus;
+    this.debug = opts.debug ?? false;
 
     this.doc.on('update', this.handleLocalUpdate);
     if (this.awareness) this.awareness.on('update', this.handleAwarenessUpdate);
 
     void this.start();
+  }
+
+  private log(...args: unknown[]) {
+    if (this.debug) {
+      // eslint-disable-next-line no-console
+      console.log('[SupabaseYjsProvider]', `room:${this.roomId}`, ...args);
+    }
   }
 
   private setStatus(s: Parameters<NonNullable<SupabaseYjsOptions['onStatus']>>[0]) {
@@ -90,7 +103,7 @@ export class SupabaseYjsProvider {
   private async start() {
     this.setStatus('connecting');
 
-    // 1. Load existing snapshot from Postgres.
+    // 1. Load durable snapshot (base64-encoded text in the DB).
     try {
       const { data, error } = await this.supabase
         .from('scripts')
@@ -98,19 +111,17 @@ export class SupabaseYjsProvider {
         .eq('id', this.scriptId)
         .maybeSingle();
       if (error) throw error;
-      if (data?.y_state) {
-        const bytes =
-          data.y_state instanceof Uint8Array
-            ? data.y_state
-            : fromB64(String(data.y_state).replace(/^\\x/, ''));
+      const b64 = data?.y_state;
+      if (typeof b64 === 'string' && b64.length > 0) {
         try {
-          Y.applyUpdate(this.doc, bytes, 'supabase-snapshot');
-        } catch {
-          // ignore malformed snapshots — CRDT will re-converge from peers
+          Y.applyUpdate(this.doc, fromB64(b64), 'supabase-snapshot');
+          this.log('applied snapshot bytes:', b64.length);
+        } catch (e) {
+          this.log('snapshot apply failed (ignored):', e);
         }
       }
-    } catch {
-      // read failure is non-fatal; keep going with broadcast
+    } catch (e) {
+      this.log('snapshot fetch failed (ignored):', e);
     }
 
     // 2. Join broadcast channel.
@@ -123,18 +134,18 @@ export class SupabaseYjsProvider {
     );
 
     channel.subscribe((status) => {
+      this.log('subscribe status:', status);
       if (status === 'SUBSCRIBED') {
         this.setStatus('synced');
-        // Broadcast our full state so peers who joined before us catch up.
+        // Ask any existing peers for their state...
+        void this.broadcast({ kind: 'sync-request', origin: this.doc.clientID });
+        // ...and offer ours in case we're the one with content.
         void this.broadcast({
-          kind: 'update',
+          kind: 'sync-response',
           origin: this.doc.clientID,
           b64: toB64(Y.encodeStateAsUpdate(this.doc)),
         });
-        if (this.awareness) {
-          const localState = this.awareness.getLocalState();
-          if (localState) this.pushAwareness([this.awareness.clientID]);
-        }
+        if (this.awareness?.getLocalState()) this.pushAwareness();
       } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
         this.setStatus('error');
       } else if (status === 'CLOSED') {
@@ -157,16 +168,13 @@ export class SupabaseYjsProvider {
   };
 
   private handleAwarenessUpdate = () => {
-    if (!this.awareness) return;
-    this.pushAwareness([this.awareness.clientID]);
+    this.pushAwareness();
   };
 
-  private pushAwareness(clients: number[]) {
+  private pushAwareness() {
     if (!this.awareness) return;
-    // Encode via y-protocols if available; otherwise send a lightweight
-    // JSON snapshot (best-effort — the full awareness protocol is optional).
     const state = this.awareness.getLocalState();
-    const payload = { clientId: this.awareness.clientID, state, clients };
+    const payload = { clientId: this.awareness.clientID, state };
     const bytes = new TextEncoder().encode(JSON.stringify(payload));
     void this.broadcast({
       kind: 'awareness',
@@ -178,22 +186,29 @@ export class SupabaseYjsProvider {
   private handleRemote(payload: BroadcastPayload) {
     if (payload.origin === this.doc.clientID) return;
     try {
-      const bytes = fromB64(payload.b64);
-      if (payload.kind === 'update') {
-        Y.applyUpdate(this.doc, bytes, 'supabase-remote');
+      if (payload.kind === 'update' || payload.kind === 'sync-response') {
+        Y.applyUpdate(this.doc, fromB64(payload.b64), 'supabase-remote');
+        this.log('applied remote', payload.kind, 'from', payload.origin);
+      } else if (payload.kind === 'sync-request') {
+        // A new peer joined — send them our full state.
+        void this.broadcast({
+          kind: 'sync-response',
+          origin: this.doc.clientID,
+          b64: toB64(Y.encodeStateAsUpdate(this.doc)),
+        });
+        this.log('replied to sync-request from', payload.origin);
       } else if (payload.kind === 'awareness' && this.awareness) {
+        const bytes = fromB64(payload.b64);
         const decoded = JSON.parse(new TextDecoder().decode(bytes));
         if (decoded && typeof decoded.clientId === 'number') {
-          // We can't call setStates directly on the abstract awareness; expose
-          // it via a custom event so the app can merge with y-protocols.
           const evt = new CustomEvent('optaprompter:awareness', { detail: decoded });
           if (typeof globalThis.dispatchEvent === 'function') {
             globalThis.dispatchEvent(evt);
           }
         }
       }
-    } catch {
-      /* swallow — remote frame malformed */
+    } catch (e) {
+      this.log('remote frame parse/apply failed (ignored):', e);
     }
   }
 
@@ -201,8 +216,8 @@ export class SupabaseYjsProvider {
     if (!this.channel) return;
     try {
       await this.channel.send({ type: 'broadcast', event: 'yjs', payload });
-    } catch {
-      /* transient; state re-broadcasts on next update */
+    } catch (e) {
+      this.log('broadcast failed:', e);
     }
   }
 
@@ -218,14 +233,21 @@ export class SupabaseYjsProvider {
   async flush() {
     if (!this.writable || !this.dirty || this.disposed) return;
     this.dirty = false;
-    const state = Y.encodeStateAsUpdate(this.doc);
+    const b64 = toB64(Y.encodeStateAsUpdate(this.doc));
     try {
-      await this.supabase
+      const { error } = await this.supabase
         .from('scripts')
-        .update({ y_state: state })
+        .update({ y_state: b64 })
         .eq('id', this.scriptId);
-    } catch {
-      this.dirty = true; // retry on next update
+      if (error) {
+        this.dirty = true;
+        this.log('flush failed:', error);
+      } else {
+        this.log('flushed snapshot bytes:', b64.length);
+      }
+    } catch (e) {
+      this.dirty = true;
+      this.log('flush threw:', e);
     }
   }
 
