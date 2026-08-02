@@ -21,8 +21,8 @@ pub fn harden_always_on_top<R: Runtime>(window: &WebviewWindow<R>) {
 
 /// Flip the app to `NSApplicationActivationPolicyAccessory` — no Dock,
 /// no Cmd+Tab, but our windows can appear over other apps' fullscreen
-/// Spaces. **Without this, cross-app fullscreen overlay doesn't work on
-/// macOS**, regardless of window level or collection behavior.
+/// Spaces. Required for the overlay to be visible over other apps in
+/// fullscreen on macOS.
 pub fn set_accessory_app() {
     #[cfg(target_os = "macos")]
     macos::set_accessory_app();
@@ -31,8 +31,15 @@ pub fn set_accessory_app() {
 #[cfg(target_os = "macos")]
 mod macos {
     use cocoa::base::id;
+    use objc::runtime::{Class, Object};
     use objc::{class, msg_send, sel, sel_impl};
+    use std::sync::Once;
     use tauri::{Runtime, WebviewWindow};
+
+    // libobjc runtime function — swap an object's class at runtime.
+    extern "C" {
+        fn object_setClass(obj: *mut Object, cls: *const Class) -> *const Class;
+    }
 
     // NSApplicationActivationPolicy.Accessory
     const APP_POLICY_ACCESSORY: i64 = 1;
@@ -55,16 +62,30 @@ mod macos {
     // NSPopUpMenuWindowLevel = 101 — the tier most macOS overlays use.
     const OVERLAY_LEVEL: i64 = 101;
 
-    // NSWindowCollectionBehavior bits, sent as raw u64.
     const CAN_JOIN_ALL_SPACES: u64 = 1 << 0;
     const TRANSIENT: u64 = 1 << 3;
     const STATIONARY: u64 = 1 << 4;
     const IGNORES_CYCLE: u64 = 1 << 6;
     const FULL_SCREEN_AUXILIARY: u64 = 1 << 8;
 
-    // NSWindowStyleMask bits (only ones we care about).
-    const STYLE_MASK_BORDERLESS: u64 = 0;
-    const STYLE_MASK_NONACTIVATING_PANEL: u64 = 1 << 7; // valid on NSWindow too in practice
+    const STYLE_MASK_NONACTIVATING_PANEL: u64 = 1 << 7;
+
+    static CLASS_SWAPPED: Once = Once::new();
+
+    /// Change the underlying NSWindow instance into an NSPanel by rewriting
+    /// its class pointer. This is what enables `NSWindowStyleMaskNonactivatingPanel`
+    /// to actually take effect — which is what lets the window appear in
+    /// other apps' fullscreen Spaces.
+    unsafe fn convert_to_panel(ns_window: id) -> bool {
+        let panel_cls_opt = Class::get("NSPanel");
+        let Some(panel_cls) = panel_cls_opt else {
+            eprintln!("[optaprompter] Class::get(NSPanel) returned None");
+            return false;
+        };
+        object_setClass(ns_window as *mut Object, panel_cls as *const Class);
+        eprintln!("[optaprompter] NSWindow → NSPanel class swap done");
+        true
+    }
 
     pub fn apply_window<R: Runtime>(window: &WebviewWindow<R>) {
         let Ok(ns_window_ptr) = window.ns_window() else {
@@ -77,6 +98,11 @@ mod macos {
         }
         let ns_window = ns_window_ptr as id;
 
+        // One-time class swap so nonactivating-panel styleMask actually sticks.
+        CLASS_SWAPPED.call_once(|| unsafe {
+            let _ = convert_to_panel(ns_window);
+        });
+
         let behavior: u64 = CAN_JOIN_ALL_SPACES
             | TRANSIENT
             | STATIONARY
@@ -84,18 +110,19 @@ mod macos {
             | FULL_SCREEN_AUXILIARY;
 
         unsafe {
+            // Now that we're an NSPanel, this bit takes effect.
+            let current_mask: u64 = msg_send![ns_window, styleMask];
+            let new_mask = current_mask | STYLE_MASK_NONACTIVATING_PANEL;
+            let _: () = msg_send![ns_window, setStyleMask: new_mask];
+
             let _: () = msg_send![ns_window, setLevel: OVERLAY_LEVEL];
             let _: () = msg_send![ns_window, setCollectionBehavior: behavior];
             let _: () = msg_send![ns_window, setHidesOnDeactivate: false];
 
-            // Add the "nonactivating panel" bit to the style mask. This tells
-            // AppKit that focusing the window shouldn't activate the app,
-            // which is what actually lets it appear in other apps' fullscreen
-            // Spaces. Works on NSWindow even though the flag is documented
-            // for NSPanel.
-            let current_mask: u64 = msg_send![ns_window, styleMask];
-            let new_mask = current_mask | STYLE_MASK_NONACTIVATING_PANEL | STYLE_MASK_BORDERLESS;
-            let _: () = msg_send![ns_window, setStyleMask: new_mask];
+            // NSPanel-specific: don't become key window on click.
+            let _: () = msg_send![ns_window, setBecomesKeyOnlyIfNeeded: true];
+            // NSPanel-specific: float above regular windows.
+            let _: () = msg_send![ns_window, setFloatingPanel: true];
 
             let _: () = msg_send![ns_window, orderFrontRegardless];
 
