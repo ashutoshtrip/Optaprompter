@@ -83,6 +83,15 @@ export default function OverlayControls(p: Props) {
         <button onClick={p.onHideToolbar} title="Hide toolbar (T)">
           ✕
         </button>
+        <button
+          onClick={() => {
+            if (confirm('Quit OptaPrompter?')) invoke('quit_app');
+          }}
+          title="Quit (⌘/Ctrl+Shift+Q)"
+          style={{ color: '#fca5a5' }}
+        >
+          ⏻
+        </button>
       </div>
     </div>
   );

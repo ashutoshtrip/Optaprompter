@@ -90,6 +90,16 @@ fn reassert_always_on_top(app: tauri::AppHandle) -> Result<(), String> {
     Ok(())
 }
 
+#[tauri::command]
+fn quit_app(app: tauri::AppHandle) {
+    app.exit(0);
+}
+
+#[tauri::command]
+fn quit_app(app: tauri::AppHandle) {
+    app.exit(0);
+}
+
 pub fn run() {
     let state: SharedState = Arc::new(Mutex::new(OverlayState {
         click_through: false,
@@ -158,6 +168,12 @@ pub fn run() {
                     // Cmd/Ctrl + Shift + R → reset timer
                     if matches_cmd_or_ctrl(shortcut, Modifiers::SHIFT, Code::KeyR) {
                         let _ = app.emit("prompter:reset-timer", ());
+                        return;
+                    }
+
+                    // Cmd/Ctrl + Shift + Q → quit the app
+                    if matches_cmd_or_ctrl(shortcut, Modifiers::SHIFT, Code::KeyQ) {
+                        app.exit(0);
                     }
                 })
                 .build(),
@@ -180,6 +196,7 @@ pub fn run() {
             register_all(Code::Equal);      // font size +
             register_all(Code::Minus);      // font size −
             register_all(Code::KeyR);       // reset timer
+            register_all(Code::KeyQ);       // quit app
 
             window_protection::set_accessory_app();
 
@@ -217,6 +234,7 @@ pub fn run() {
             toggle_click_through,
             toggle_content_protected,
             reassert_always_on_top,
+            quit_app,
         ])
         .run(tauri::generate_context!())
         .expect("error while running OptaPrompter");
