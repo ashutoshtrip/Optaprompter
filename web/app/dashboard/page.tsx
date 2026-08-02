@@ -14,6 +14,7 @@ export default async function Dashboard() {
   const { data: scripts } = await supabase
     .from('scripts')
     .select('id, title, room_id, updated_at')
+    .eq('owner_id', user.id)
     .order('updated_at', { ascending: false });
 
   return (

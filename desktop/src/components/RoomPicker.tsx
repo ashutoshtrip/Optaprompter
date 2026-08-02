@@ -23,9 +23,12 @@ export default function RoomPicker({ supabase, onPick, onSignOut }: Props) {
 
   useEffect(() => {
     void (async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) { setLoading(false); return; }
       const { data, error } = await supabase
         .from('scripts')
         .select('id, title, room_id, updated_at')
+        .eq('owner_id', user.id)
         .order('updated_at', { ascending: false });
       if (error) setErr(error.message);
       else setScripts(data ?? []);
@@ -56,13 +59,16 @@ export default function RoomPicker({ supabase, onPick, onSignOut }: Props) {
 
       <div className="manual">
         <input
-          placeholder="Enter room code (e.g. K7XM-P29A)"
+          placeholder="Enter room code from a shared script (e.g. K7XM-P29A)"
           value={manual}
           onChange={(e) => setManual(e.target.value)}
           onKeyDown={(e) => { if (e.key === 'Enter') void joinManual(); }}
         />
         <button onClick={joinManual}>Join</button>
       </div>
+      <p className="muted" style={{ fontSize: 12, margin: '0 0 12px' }}>
+        Anyone with the room code can join and sync live — no invite needed.
+      </p>
 
       {err && <p className="err">{err}</p>}
       {loading && <p className="muted">Loading…</p>}
