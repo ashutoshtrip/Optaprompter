@@ -17,6 +17,7 @@ interface Props {
   onResetTimer: () => void;
   onLeave: () => void;
   onProtectedChanged: (v: boolean) => void;
+  onHideToolbar: () => void;
 }
 
 const formatTime = (s: number) => {
@@ -78,6 +79,9 @@ export default function OverlayControls(p: Props) {
               title={p.clickThrough ? 'Click-through ON' : 'Click-through OFF'} />
         <button onClick={toggleClickThrough} title="⌘/Ctrl+Shift+P">
           {p.clickThrough ? 'Click-thru' : 'Interactive'}
+        </button>
+        <button onClick={p.onHideToolbar} title="Hide toolbar (T)">
+          ✕
         </button>
       </div>
     </div>

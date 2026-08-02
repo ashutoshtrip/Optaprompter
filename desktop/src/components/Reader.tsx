@@ -25,6 +25,7 @@ export default function Reader({ supabase, script, onLeave }: Props) {
   const [timerSec, setTimerSec] = useState(0);
   const [clickThrough, setClickThrough] = useState(false);
   const [protectedFromCapture, setProtectedFromCapture] = useState(true);
+  const [toolbarVisible, setToolbarVisible] = useState(true);
 
   const scrollRef = useRef<HTMLDivElement | null>(null);
 
@@ -53,12 +54,22 @@ export default function Reader({ supabase, script, onLeave }: Props) {
     immediatelyRender: false,
   }, [doc]);
 
-  // Sync overlay state from Rust (hotkey may change click-through).
+  // Sync overlay state from Rust + subscribe to global hotkey events.
   useEffect(() => {
     invoke<boolean>('get_click_through').then(setClickThrough).catch(() => {});
     invoke<boolean>('get_content_protected').then(setProtectedFromCapture).catch(() => {});
-    const un = listen<boolean>('click-through-changed', (e) => setClickThrough(e.payload));
-    return () => { un.then((f) => f()); };
+
+    const unsubs: Array<Promise<() => void>> = [
+      listen<boolean>('click-through-changed', (e) => setClickThrough(e.payload)),
+      listen('prompter:toggle-toolbar', () => setToolbarVisible((v) => !v)),
+      listen('prompter:toggle-play',    () => setPlaying((p) => !p)),
+      listen<number>('prompter:speed-delta', (e) =>
+        setSpeed((s) => Math.max(20, Math.min(300, s + Number(e.payload))))),
+      listen<number>('prompter:font-delta', (e) =>
+        setFontSize((f) => Math.max(18, Math.min(72, f + Number(e.payload))))),
+      listen('prompter:reset-timer', () => setTimerSec(0)),
+    ];
+    return () => { unsubs.forEach((p) => p.then((f) => f())); };
   }, []);
 
   // Timer.
@@ -88,7 +99,7 @@ export default function Reader({ supabase, script, onLeave }: Props) {
     return () => cancelAnimationFrame(raf);
   }, [playing, speed]);
 
-  // In-window hotkeys (Space / arrows / R).
+  // In-window hotkeys.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.target instanceof HTMLInputElement) return;
@@ -98,6 +109,7 @@ export default function Reader({ supabase, script, onLeave }: Props) {
       else if (e.key === '+' || e.key === '=') setFontSize((f) => Math.min(72, f + 2));
       else if (e.key === '-' || e.key === '_') setFontSize((f) => Math.max(18, f - 2));
       else if (e.key.toLowerCase() === 'r') setTimerSec(0);
+      else if (e.key.toLowerCase() === 't') setToolbarVisible((v) => !v);
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
@@ -110,30 +122,43 @@ export default function Reader({ supabase, script, onLeave }: Props) {
 
   return (
     <div className="reader-shell">
-      <OverlayControls
-        clickThrough={clickThrough}
-        protectedFromCapture={protectedFromCapture}
-        playing={playing}
-        speed={speed}
-        fontSize={fontSize}
-        opacity={opacity}
-        timerSec={timerSec}
-        scriptTitle={script.title}
-        roomId={script.roomId}
-        onSpeed={setSpeed}
-        onFontSize={setFontSize}
-        onOpacity={setOpacity}
-        onTogglePlay={() => setPlaying((p) => !p)}
-        onResetTimer={() => setTimerSec(0)}
-        onLeave={onLeave}
-        onProtectedChanged={setProtectedFromCapture}
-      />
+      {toolbarVisible && (
+        <OverlayControls
+          clickThrough={clickThrough}
+          protectedFromCapture={protectedFromCapture}
+          playing={playing}
+          speed={speed}
+          fontSize={fontSize}
+          opacity={opacity}
+          timerSec={timerSec}
+          scriptTitle={script.title}
+          roomId={script.roomId}
+          onSpeed={setSpeed}
+          onFontSize={setFontSize}
+          onOpacity={setOpacity}
+          onTogglePlay={() => setPlaying((p) => !p)}
+          onResetTimer={() => setTimerSec(0)}
+          onLeave={onLeave}
+          onProtectedChanged={setProtectedFromCapture}
+          onHideToolbar={() => setToolbarVisible(false)}
+        />
+      )}
 
       <div className="reader-body" ref={scrollRef} style={readerStyle}>
-        <div className={`status-pill ${status}`}>{status}</div>
+        {toolbarVisible && <div className={`status-pill ${status}`}>{status}</div>}
         <EditorContent editor={editor} />
         <div className="reader-tail" />
       </div>
+
+      {!toolbarVisible && (
+        <button
+          className="toolbar-hint"
+          onClick={() => setToolbarVisible(true)}
+          title="Show toolbar (T)"
+        >
+          T
+        </button>
+      )}
     </div>
   );
 }
