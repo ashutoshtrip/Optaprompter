@@ -1,0 +1,27 @@
+# Dependencies
+node_modules
+package-lock.json.bak
+
+# Build outputs
+.next
+dist
+out
+build
+target
+
+# Env
+.env
+.env.local
+.env.*.local
+
+# Tauri
+.tauri/
+desktop/src-tauri/target/
+desktop/src-tauri/gen/
+
+# Editor / OS
+.DS_Store
+*.log
+.turbo
+.vscode/*
+!.vscode/settings.json

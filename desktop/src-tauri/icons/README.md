@@ -1,9 +1,11 @@
 # Icons
 
-Placeholders — run
+These icons are **checked into the repo** so the Tauri build works out of the box on any machine.
+
+The source is a 1024×1024 gradient PNG. To regenerate from your own artwork, run from the repo root:
 
 ```bash
-npx @tauri-apps/cli icon <path/to/1024x1024.png>
+./node_modules/.bin/tauri icon /path/to/your-1024x1024.png --output desktop/src-tauri/icons
 ```
 
-to generate the full set (32x32.png, 128x128.png, 128x128@2x.png, icon.icns, icon.ico). Tauri won't build a release bundle without them, but `npm run tauri dev` runs fine.
+Then delete the auto-generated `ios/`, `android/`, `Square*.png`, and `StoreLogo.png` — this project only ships desktop builds.
