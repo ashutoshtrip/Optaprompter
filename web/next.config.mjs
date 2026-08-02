@@ -2,10 +2,8 @@
 const nextConfig = {
   reactStrictMode: true,
   transpilePackages: ['@optaprompter/shared'],
-  experimental: {
-    // Yjs ships CJS + ESM; keep server bundling happy.
-    serverComponentsExternalPackages: ['yjs'],
-  },
+  // Yjs ships CJS + ESM; keep server bundling happy.
+  serverExternalPackages: ['yjs'],
 };
 
 export default nextConfig;
