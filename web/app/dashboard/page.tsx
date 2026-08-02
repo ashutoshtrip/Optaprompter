@@ -39,9 +39,14 @@ export default async function Dashboard() {
         <ol className="mt-3 pl-5 list-decimal text-gray-400 space-y-1.5">
           <li>Click <span className="text-gray-200">Get desktop app</span> above, download the <code className="text-xs">.dmg</code>.</li>
           <li>Open it, drag OptaPrompter to <code className="text-xs">Applications</code>.</li>
-          <li><strong>First launch:</strong> right-click OptaPrompter in Applications → <strong>Open</strong> (bypasses macOS &quot;unidentified developer&quot; warning).</li>
-          <li>Sign in with this same email.</li>
-          <li>Create a script here → pick it in the overlay → typing here reflects on the overlay live.</li>
+          <li>
+            <strong>First launch:</strong> open Terminal and run this once (clears macOS&apos;s
+            &quot;unidentified developer&quot; quarantine flag on the unsigned app):
+            <pre className="mt-1 bg-black/40 border border-white/10 rounded px-2 py-1.5 text-xs text-gray-200 overflow-x-auto">xattr -cr /Applications/OptaPrompter.app</pre>
+            Then double-click OptaPrompter normally.
+          </li>
+          <li>Sign in with any email (yours or shared).</li>
+          <li>Anyone with the room code can join and edit — no need to share accounts.</li>
           <li><code className="text-xs">Cmd + Shift + P</code> toggles click-through so you can click through it to PowerPoint / Chrome.</li>
         </ol>
       </details>
