@@ -117,6 +117,7 @@ pub fn run() {
             let _ = gs.register(Shortcut::new(Some(Modifiers::CONTROL | Modifiers::SHIFT), Code::KeyP));
 
             if let Some(w) = app.get_webview_window(OVERLAY_LABEL) {
+                window_protection::harden_always_on_top(&w);
                 let _ = window_protection::set_capture_protection(&w, true);
                 let _ = apply_click_through(&w, false);
             }

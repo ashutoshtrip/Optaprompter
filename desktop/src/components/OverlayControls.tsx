@@ -33,10 +33,11 @@ export default function OverlayControls(p: Props) {
   };
 
   return (
-    <div className="controls">
-      <div className="left">
+    <div className="controls" data-tauri-drag-region>
+      <div className="left" data-tauri-drag-region>
         <button onClick={p.onLeave} title="Change script">↩</button>
-        <span className="title" title={p.roomId}>
+        <span className="drag-handle" data-tauri-drag-region title="Drag to move">⋮⋮</span>
+        <span className="title" data-tauri-drag-region title={p.roomId}>
           {p.scriptTitle} <span className="mono muted">· {p.roomId}</span>
         </span>
       </div>

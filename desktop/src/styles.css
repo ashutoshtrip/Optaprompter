@@ -160,6 +160,19 @@ button {
   backdrop-filter: blur(8px);
   border-bottom: 1px solid var(--border);
   font-size: 12px;
+  cursor: grab;
+}
+.controls:active { cursor: grabbing; }
+.controls button,
+.controls input,
+.controls label { cursor: default; }
+.controls button:hover { cursor: pointer; }
+.drag-handle {
+  color: rgba(255,255,255,0.4);
+  font-weight: 700;
+  letter-spacing: -2px;
+  padding: 0 4px;
+  user-select: none;
 }
 .controls .left,
 .controls .center,
