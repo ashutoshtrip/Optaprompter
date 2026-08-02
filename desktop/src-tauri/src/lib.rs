@@ -125,6 +125,10 @@ pub fn run() {
             let _ = gs.register(Shortcut::new(Some(Modifiers::SUPER | Modifiers::SHIFT), Code::KeyP));
             let _ = gs.register(Shortcut::new(Some(Modifiers::CONTROL | Modifiers::SHIFT), Code::KeyP));
 
+            // Make the app an "accessory" — no Dock icon, no Cmd+Tab, but
+            // windows can float over other apps' fullscreen Spaces.
+            window_protection::set_accessory_app();
+
             if let Some(w) = app.get_webview_window(OVERLAY_LABEL) {
                 window_protection::harden_always_on_top(&w);
                 let _ = window_protection::set_capture_protection(&w, true);

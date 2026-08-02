@@ -11,43 +11,64 @@ pub fn set_capture_protection<R: Runtime>(
 
 /// Make the overlay float above everything — including apps in their own
 /// fullscreen Space (Chrome fullscreen, PPT/Keynote presenter mode, etc.).
-///
-/// The tricks that matter on macOS:
-///   * `setLevel:` to a value above regular windows.
-///   * `setCollectionBehavior:` with `canJoinAllSpaces | fullScreenAuxiliary
-///     | stationary | ignoresCycle` so the window is present in every
-///     Space (including fullscreen Spaces created by other apps) and
-///     doesn't move when the active Space changes.
-///   * `orderFrontRegardless` to force the window forward without stealing
-///     activation from the fullscreen app.
-///   * `setHidesOnDeactivate: NO` so switching apps doesn't hide us.
 pub fn harden_always_on_top<R: Runtime>(window: &WebviewWindow<R>) {
     let _ = window.set_always_on_top(true);
     let _ = window.set_visible_on_all_workspaces(true);
 
     #[cfg(target_os = "macos")]
-    macos::apply(window);
+    macos::apply_window(window);
+}
+
+/// Call once at startup. Sets `NSApp.activationPolicy = Accessory` so our
+/// windows can appear over other apps' fullscreen Spaces (the way Zoom PiP,
+/// Rewind, and menu-bar apps do).
+///
+/// Side effect: our app no longer appears in the Dock or Cmd+Tab. Perfect
+/// for a teleprompter — the presenter drives it via hotkey / mouse, not
+/// via app switching.
+pub fn set_accessory_app() {
+    #[cfg(target_os = "macos")]
+    macos::set_accessory_app();
 }
 
 #[cfg(target_os = "macos")]
 mod macos {
     use cocoa::base::id;
-    use objc::{msg_send, sel, sel_impl};
+    use objc::{class, msg_send, sel, sel_impl};
     use tauri::{Runtime, WebviewWindow};
 
-    // NSPopUpMenuWindowLevel = 101 is the tier most macOS overlays use
-    // (Zoom picture-in-picture, Rewind, CleanShot annotate). Higher than
-    // regular windows and fullscreen app windows, lower than screen saver.
+    // NSPopUpMenuWindowLevel = 101 — the tier most macOS overlays use.
     const OVERLAY_LEVEL: i64 = 101;
 
-    // NSWindowCollectionBehavior bits (passed as raw u64 to avoid bitflag
-    // struct ABI issues going through msg_send!).
+    // NSWindowCollectionBehavior bits, sent as raw u64.
     const CAN_JOIN_ALL_SPACES: u64 = 1 << 0;
     const STATIONARY: u64 = 1 << 4;
     const IGNORES_CYCLE: u64 = 1 << 6;
     const FULL_SCREEN_AUXILIARY: u64 = 1 << 8;
 
-    pub fn apply<R: Runtime>(window: &WebviewWindow<R>) {
+    // NSApplicationActivationPolicy
+    // 0 = Regular (dockable, default)
+    // 1 = Accessory (no dock, no cmd-tab, can float over fullscreen)
+    // 2 = Prohibited (no UI at all)
+    const NS_APP_ACTIVATION_POLICY_ACCESSORY: i64 = 1;
+
+    pub fn set_accessory_app() {
+        unsafe {
+            let ns_app: id = msg_send![class!(NSApplication), sharedApplication];
+            if ns_app.is_null() {
+                eprintln!("[optaprompter] NSApp shared instance is null");
+                return;
+            }
+            let ok: bool =
+                msg_send![ns_app, setActivationPolicy: NS_APP_ACTIVATION_POLICY_ACCESSORY];
+            eprintln!(
+                "[optaprompter] setActivationPolicy(Accessory) → {}",
+                if ok { "ok" } else { "failed" }
+            );
+        }
+    }
+
+    pub fn apply_window<R: Runtime>(window: &WebviewWindow<R>) {
         let Ok(ns_window_ptr) = window.ns_window() else {
             eprintln!("[optaprompter] ns_window() failed");
             return;
@@ -65,15 +86,7 @@ mod macos {
             let _: () = msg_send![ns_window, setLevel: OVERLAY_LEVEL];
             let _: () = msg_send![ns_window, setCollectionBehavior: behavior];
             let _: () = msg_send![ns_window, setHidesOnDeactivate: false];
-            // Force to front without stealing focus.
             let _: () = msg_send![ns_window, orderFrontRegardless];
-
-            let effective_level: i64 = msg_send![ns_window, level];
-            let effective_behavior: u64 = msg_send![ns_window, collectionBehavior];
-            eprintln!(
-                "[optaprompter] NSWindow.level={} (req {}), collectionBehavior={:#x} (req {:#x})",
-                effective_level, OVERLAY_LEVEL, effective_behavior, behavior
-            );
         }
     }
 }
