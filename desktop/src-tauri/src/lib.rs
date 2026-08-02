@@ -130,18 +130,29 @@ pub fn run() {
                 let _ = window_protection::set_capture_protection(&w, true);
                 let _ = apply_click_through(&w, false);
 
-                // macOS and some tiling window managers can reset the window
-                // level on focus loss or resize. Re-assert on every relevant
-                // event so the overlay never falls behind for long.
-                let w_clone = w.clone();
+                // Re-assert on window events (focus loss, resize, move).
+                let w_evt = w.clone();
                 w.on_window_event(move |event| match event {
                     WindowEvent::Focused(_)
                     | WindowEvent::Resized(_)
                     | WindowEvent::Moved(_)
                     | WindowEvent::ScaleFactorChanged { .. } => {
-                        window_protection::harden_always_on_top(&w_clone);
+                        window_protection::harden_always_on_top(&w_evt);
                     }
                     _ => {}
+                });
+
+                // Continuous re-assertion: macOS resets window level when
+                // another app enters/exits its own fullscreen Space, and
+                // there's no reliable Tauri event for that transition.
+                // A 1-second background tick keeps the overlay on top.
+                let w_tick = w.clone();
+                std::thread::spawn(move || loop {
+                    std::thread::sleep(std::time::Duration::from_secs(1));
+                    let w_main = w_tick.clone();
+                    let _ = w_tick.run_on_main_thread(move || {
+                        window_protection::harden_always_on_top(&w_main);
+                    });
                 });
             }
 
