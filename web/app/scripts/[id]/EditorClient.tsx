@@ -44,9 +44,7 @@ export default function EditorClient({ scriptId, roomId, title, user }: Props) {
       doc,
       roomId,
       scriptId,
-      awareness: awareness as unknown as ConstructorParameters<
-        typeof SupabaseYjsProvider
-      >[0]['awareness'],
+      awareness: awareness as never,
       onStatus: setStatus,
       writable: true,
       debug: true,
@@ -80,10 +78,12 @@ export default function EditorClient({ scriptId, roomId, title, user }: Props) {
       StarterKit.configure({ history: false }),
       Placeholder.configure({ placeholder: 'Start writing the script…' }),
       Collaboration.configure({ document: doc }),
+      // CollaborationCursor expects a provider object with an `awareness`
+      // field. We wire our own Awareness instance directly. The `as never`
+      // dodges Tiptap's strict provider typing (which expects a y-websocket
+      // /y-webrtc-shaped provider we don't use).
       CollaborationCursor.configure({
-        provider: {
-          awareness,
-        } as unknown as ConstructorParameters<typeof CollaborationCursor>[0]['provider'],
+        provider: { awareness } as never,
         user: {
           name: user.displayName,
           color: colorForUser(user.id),
