@@ -125,8 +125,10 @@ pub fn run() {
             let _ = gs.register(Shortcut::new(Some(Modifiers::SUPER | Modifiers::SHIFT), Code::KeyP));
             let _ = gs.register(Shortcut::new(Some(Modifiers::CONTROL | Modifiers::SHIFT), Code::KeyP));
 
-            // Make the app an "accessory" — no Dock icon, no Cmd+Tab, but
-            // windows can float over other apps' fullscreen Spaces.
+            // Required for the overlay to appear over other apps' fullscreen
+            // Spaces (Chrome fullscreen, PPT presenter mode, etc.). Side effect:
+            // the app disappears from the Dock and Cmd+Tab, which for a
+            // teleprompter is actually the right UX (interact via hotkey / mouse).
             window_protection::set_accessory_app();
 
             if let Some(w) = app.get_webview_window(OVERLAY_LABEL) {
