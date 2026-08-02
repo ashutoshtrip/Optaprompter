@@ -11,7 +11,7 @@ mod window_protection;
 
 use parking_lot::Mutex;
 use std::sync::Arc;
-use tauri::{Emitter, Manager, WebviewWindow};
+use tauri::{Emitter, Manager, WebviewWindow, WindowEvent};
 use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut, ShortcutState};
 
 const OVERLAY_LABEL: &str = "prompter";
@@ -77,6 +77,15 @@ fn toggle_content_protected(
     Ok(next)
 }
 
+/// Re-apply always-on-top + level + collection behavior from JS.
+/// Useful if the overlay ever falls behind and you want to re-assert.
+#[tauri::command]
+fn reassert_always_on_top(app: tauri::AppHandle) -> Result<(), String> {
+    let w = overlay(&app).map_err(|e| e.to_string())?;
+    window_protection::harden_always_on_top(&w);
+    Ok(())
+}
+
 pub fn run() {
     let state: SharedState = Arc::new(Mutex::new(OverlayState {
         click_through: false,
@@ -120,6 +129,20 @@ pub fn run() {
                 window_protection::harden_always_on_top(&w);
                 let _ = window_protection::set_capture_protection(&w, true);
                 let _ = apply_click_through(&w, false);
+
+                // macOS and some tiling window managers can reset the window
+                // level on focus loss or resize. Re-assert on every relevant
+                // event so the overlay never falls behind for long.
+                let w_clone = w.clone();
+                w.on_window_event(move |event| match event {
+                    WindowEvent::Focused(_)
+                    | WindowEvent::Resized(_)
+                    | WindowEvent::Moved(_)
+                    | WindowEvent::ScaleFactorChanged { .. } => {
+                        window_protection::harden_always_on_top(&w_clone);
+                    }
+                    _ => {}
+                });
             }
 
             Ok(())
@@ -129,6 +152,7 @@ pub fn run() {
             get_content_protected,
             toggle_click_through,
             toggle_content_protected,
+            reassert_always_on_top,
         ])
         .run(tauri::generate_context!())
         .expect("error while running OptaPrompter");
