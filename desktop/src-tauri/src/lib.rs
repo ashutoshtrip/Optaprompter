@@ -10,7 +10,7 @@ mod window_protection;
 
 use parking_lot::Mutex;
 use std::sync::Arc;
-use tauri::{Emitter, Manager, WebviewWindow, WindowEvent};
+use tauri::{Emitter, Manager, WebviewWindow};
 use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut, ShortcutState};
 
 const OVERLAY_LABEL: &str = "prompter";
@@ -84,9 +84,16 @@ fn toggle_content_protected(
 }
 
 #[tauri::command]
-fn reassert_always_on_top(app: tauri::AppHandle) -> Result<(), String> {
+fn enter_overlay_mode(app: tauri::AppHandle) -> Result<(), String> {
     let w = overlay(&app).map_err(|e| e.to_string())?;
-    window_protection::harden_always_on_top(&w);
+    window_protection::enter_overlay_mode(&w);
+    Ok(())
+}
+
+#[tauri::command]
+fn leave_overlay_mode(app: tauri::AppHandle) -> Result<(), String> {
+    let w = overlay(&app).map_err(|e| e.to_string())?;
+    window_protection::leave_overlay_mode(&w);
     Ok(())
 }
 
@@ -198,32 +205,15 @@ pub fn run() {
             register_all(Code::KeyR);       // reset timer
             register_all(Code::KeyQ);       // quit app
 
-            window_protection::set_accessory_app();
-
             if let Some(w) = app.get_webview_window(OVERLAY_LABEL) {
-                window_protection::harden_always_on_top(&w);
+                // Baseline: always-on-top + content-protected. Keeps normal
+                // keyboard input so auth/picker screens work. The overlay
+                // stack (accessory, nonactivating panel, fullscreen visibility)
+                // is toggled from JS via `enter_overlay_mode` / `leave_overlay_mode`
+                // as the user navigates between reader and picker/auth.
+                window_protection::apply_baseline(&w);
                 let _ = window_protection::set_capture_protection(&w, true);
                 let _ = apply_click_through(&w, false);
-
-                let w_evt = w.clone();
-                w.on_window_event(move |event| match event {
-                    WindowEvent::Focused(_)
-                    | WindowEvent::Resized(_)
-                    | WindowEvent::Moved(_)
-                    | WindowEvent::ScaleFactorChanged { .. } => {
-                        window_protection::harden_always_on_top(&w_evt);
-                    }
-                    _ => {}
-                });
-
-                let w_tick = w.clone();
-                std::thread::spawn(move || loop {
-                    std::thread::sleep(std::time::Duration::from_secs(1));
-                    let w_main = w_tick.clone();
-                    let _ = w_tick.run_on_main_thread(move || {
-                        window_protection::harden_always_on_top(&w_main);
-                    });
-                });
             }
 
             Ok(())
@@ -233,7 +223,8 @@ pub fn run() {
             get_content_protected,
             toggle_click_through,
             toggle_content_protected,
-            reassert_always_on_top,
+            enter_overlay_mode,
+            leave_overlay_mode,
             quit_app,
         ])
         .run(tauri::generate_context!())

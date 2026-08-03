@@ -54,6 +54,14 @@ export default function Reader({ supabase, script, onLeave }: Props) {
     immediatelyRender: false,
   }, [doc]);
 
+  // Enter overlay mode (accessory app, nonactivating panel, fullscreen-space
+  // visibility) while the reader is mounted. Reverse it when navigating away
+  // so the picker/auth screens can accept keyboard input again.
+  useEffect(() => {
+    invoke('enter_overlay_mode').catch(() => {});
+    return () => { invoke('leave_overlay_mode').catch(() => {}); };
+  }, []);
+
   // Sync overlay state from Rust + subscribe to global hotkey events.
   useEffect(() => {
     invoke<boolean>('get_click_through').then(setClickThrough).catch(() => {});

@@ -1,4 +1,15 @@
 //! OS-level overlay hardening.
+//!
+//! Split into two phases:
+//!   * `apply_baseline(window)` — always-on-top + content-protected. Applied
+//!     at startup and stays on for every screen. Keeps normal keyboard input.
+//!   * `enter_overlay_mode(window)` — the aggressive stack: accessory app
+//!     policy, NSPanel class swap, nonactivating style, fullscreen-Space
+//!     collection behavior. Enabled *only* when the reader view is shown.
+//!     Without this, the overlay disappears behind fullscreen apps; with it,
+//!     text inputs can't receive keyboard focus — hence the split.
+//!   * `leave_overlay_mode(window)` — undo the parts that block input so the
+//!     picker/auth screens work normally when the user goes back.
 
 use tauri::{Runtime, WebviewWindow};
 
@@ -9,23 +20,25 @@ pub fn set_capture_protection<R: Runtime>(
     window.set_content_protected(protected)
 }
 
-/// Make the overlay float above everything — including apps in their own
-/// fullscreen Space (Chrome fullscreen, PPT/Keynote presenter mode, etc.).
-pub fn harden_always_on_top<R: Runtime>(window: &WebviewWindow<R>) {
+/// Baseline overlay behavior — applied at startup and never removed.
+/// Just always-on-top + present on all workspaces. Doesn't block input.
+pub fn apply_baseline<R: Runtime>(window: &WebviewWindow<R>) {
     let _ = window.set_always_on_top(true);
     let _ = window.set_visible_on_all_workspaces(true);
-
-    #[cfg(target_os = "macos")]
-    macos::apply_window(window);
 }
 
-/// Flip the app to `NSApplicationActivationPolicyAccessory` — no Dock,
-/// no Cmd+Tab, but our windows can appear over other apps' fullscreen
-/// Spaces. Required for the overlay to be visible over other apps in
-/// fullscreen on macOS.
-pub fn set_accessory_app() {
+/// Enable the full overlay stack (accessory app, nonactivating panel, fullscreen
+/// visibility). Call when the reader view opens.
+pub fn enter_overlay_mode<R: Runtime>(window: &WebviewWindow<R>) {
     #[cfg(target_os = "macos")]
-    macos::set_accessory_app();
+    macos::enter_overlay_mode(window);
+}
+
+/// Undo the parts of overlay mode that block keyboard input, so screens with
+/// text fields (auth, room picker) work normally. Call on leaving the reader.
+pub fn leave_overlay_mode<R: Runtime>(window: &WebviewWindow<R>) {
+    #[cfg(target_os = "macos")]
+    macos::leave_overlay_mode(window);
 }
 
 #[cfg(target_os = "macos")]
@@ -36,31 +49,17 @@ mod macos {
     use std::sync::Once;
     use tauri::{Runtime, WebviewWindow};
 
-    // libobjc runtime function — swap an object's class at runtime.
     extern "C" {
         fn object_setClass(obj: *mut Object, cls: *const Class) -> *const Class;
     }
 
-    // NSApplicationActivationPolicy.Accessory
+    // NSApplicationActivationPolicy
+    const APP_POLICY_REGULAR: i64 = 0;
     const APP_POLICY_ACCESSORY: i64 = 1;
 
-    pub fn set_accessory_app() {
-        unsafe {
-            let ns_app: id = msg_send![class!(NSApplication), sharedApplication];
-            if ns_app.is_null() {
-                eprintln!("[optaprompter] NSApp is null");
-                return;
-            }
-            let ok: bool = msg_send![ns_app, setActivationPolicy: APP_POLICY_ACCESSORY];
-            eprintln!(
-                "[optaprompter] setActivationPolicy(Accessory) → {}",
-                if ok { "ok" } else { "failed" }
-            );
-        }
-    }
-
-    // NSPopUpMenuWindowLevel = 101 — the tier most macOS overlays use.
+    // NSPopUpMenuWindowLevel — high enough to sit above every non-system window.
     const OVERLAY_LEVEL: i64 = 101;
+    const NORMAL_LEVEL: i64 = 0;
 
     const CAN_JOIN_ALL_SPACES: u64 = 1 << 0;
     const TRANSIENT: u64 = 1 << 3;
@@ -72,70 +71,82 @@ mod macos {
 
     static CLASS_SWAPPED: Once = Once::new();
 
-    /// Change the underlying NSWindow instance into an NSPanel by rewriting
-    /// its class pointer. This is what enables `NSWindowStyleMaskNonactivatingPanel`
-    /// to actually take effect — which is what lets the window appear in
-    /// other apps' fullscreen Spaces.
-    unsafe fn convert_to_panel(ns_window: id) -> bool {
-        let panel_cls_opt = Class::get("NSPanel");
-        let Some(panel_cls) = panel_cls_opt else {
+    unsafe fn convert_to_panel(ns_window: id) {
+        let Some(panel_cls) = Class::get("NSPanel") else {
             eprintln!("[optaprompter] Class::get(NSPanel) returned None");
-            return false;
+            return;
         };
         object_setClass(ns_window as *mut Object, panel_cls as *const Class);
         eprintln!("[optaprompter] NSWindow → NSPanel class swap done");
-        true
     }
 
-    pub fn apply_window<R: Runtime>(window: &WebviewWindow<R>) {
-        let Ok(ns_window_ptr) = window.ns_window() else {
-            eprintln!("[optaprompter] ns_window() failed");
-            return;
-        };
-        if ns_window_ptr.is_null() {
-            eprintln!("[optaprompter] ns_window() returned null");
+    unsafe fn set_activation_policy(policy: i64) {
+        let ns_app: id = msg_send![class!(NSApplication), sharedApplication];
+        if ns_app.is_null() {
             return;
         }
-        let ns_window = ns_window_ptr as id;
+        let _: bool = msg_send![ns_app, setActivationPolicy: policy];
+        if policy == APP_POLICY_REGULAR {
+            let _: () = msg_send![ns_app, activateIgnoringOtherApps: true];
+        }
+    }
 
-        // One-time class swap so nonactivating-panel styleMask actually sticks.
-        CLASS_SWAPPED.call_once(|| unsafe {
-            let _ = convert_to_panel(ns_window);
-        });
+    fn ns_window_of<R: Runtime>(window: &WebviewWindow<R>) -> Option<id> {
+        let ns_window_ptr = window.ns_window().ok()?;
+        if ns_window_ptr.is_null() {
+            return None;
+        }
+        Some(ns_window_ptr as id)
+    }
 
-        let behavior: u64 = CAN_JOIN_ALL_SPACES
-            | TRANSIENT
-            | STATIONARY
-            | IGNORES_CYCLE
-            | FULL_SCREEN_AUXILIARY;
+    pub fn enter_overlay_mode<R: Runtime>(window: &WebviewWindow<R>) {
+        let Some(ns_window) = ns_window_of(window) else { return };
 
         unsafe {
-            // Now that we're an NSPanel, this bit takes effect.
+            set_activation_policy(APP_POLICY_ACCESSORY);
+
+            CLASS_SWAPPED.call_once(|| convert_to_panel(ns_window));
+
             let current_mask: u64 = msg_send![ns_window, styleMask];
             let new_mask = current_mask | STYLE_MASK_NONACTIVATING_PANEL;
             let _: () = msg_send![ns_window, setStyleMask: new_mask];
 
+            let behavior: u64 = CAN_JOIN_ALL_SPACES
+                | TRANSIENT
+                | STATIONARY
+                | IGNORES_CYCLE
+                | FULL_SCREEN_AUXILIARY;
             let _: () = msg_send![ns_window, setLevel: OVERLAY_LEVEL];
             let _: () = msg_send![ns_window, setCollectionBehavior: behavior];
             let _: () = msg_send![ns_window, setHidesOnDeactivate: false];
-
-            // NSPanel-specific: don't become key window on click.
             let _: () = msg_send![ns_window, setBecomesKeyOnlyIfNeeded: true];
-            // NSPanel-specific: float above regular windows.
             let _: () = msg_send![ns_window, setFloatingPanel: true];
-
             let _: () = msg_send![ns_window, orderFrontRegardless];
+        }
+    }
 
-            let effective_level: i64 = msg_send![ns_window, level];
-            let effective_behavior: u64 = msg_send![ns_window, collectionBehavior];
-            let effective_mask: u64 = msg_send![ns_window, styleMask];
-            eprintln!(
-                "[optaprompter] level={} behavior={:#x} styleMask={:#x} (nonact={})",
-                effective_level,
-                effective_behavior,
-                effective_mask,
-                (effective_mask & STYLE_MASK_NONACTIVATING_PANEL) != 0
-            );
+    pub fn leave_overlay_mode<R: Runtime>(window: &WebviewWindow<R>) {
+        let Some(ns_window) = ns_window_of(window) else { return };
+
+        unsafe {
+            // Restore Regular activation so keyboard input works normally.
+            set_activation_policy(APP_POLICY_REGULAR);
+
+            // Remove the nonactivating panel bit so the window becomes
+            // interactive & keyboardable again. Class stays NSPanel (one-way
+            // swap) but that's fine — a plain NSPanel accepts key events.
+            let current_mask: u64 = msg_send![ns_window, styleMask];
+            let new_mask = current_mask & !STYLE_MASK_NONACTIVATING_PANEL;
+            let _: () = msg_send![ns_window, setStyleMask: new_mask];
+
+            // Drop level back to normal so it doesn't hover weirdly during
+            // sign-in / picker screens.
+            let _: () = msg_send![ns_window, setLevel: NORMAL_LEVEL];
+            let _: () = msg_send![ns_window, setBecomesKeyOnlyIfNeeded: false];
+            let _: () = msg_send![ns_window, setFloatingPanel: false];
+
+            // Make it the key window so text fields get keystrokes.
+            let _: () = msg_send![ns_window, makeKeyAndOrderFront: std::ptr::null::<Object>()];
         }
     }
 }
