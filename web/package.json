@@ -14,6 +14,7 @@
     "@supabase/supabase-js": "^2.45.0",
     "@tiptap/extension-collaboration": "^2.10.0",
     "@tiptap/extension-collaboration-cursor": "^2.10.0",
+    "@tiptap/extension-image": "^2.10.0",
     "@tiptap/extension-placeholder": "^2.10.0",
     "@tiptap/pm": "^2.10.0",
     "@tiptap/react": "^2.10.0",

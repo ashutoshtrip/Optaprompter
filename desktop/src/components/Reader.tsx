@@ -1,6 +1,7 @@
 import { useEditor, EditorContent } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 import Collaboration from '@tiptap/extension-collaboration';
+import Image from '@tiptap/extension-image';
 import * as Y from 'yjs';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { useEffect, useMemo, useRef, useState } from 'react';
@@ -49,6 +50,7 @@ export default function Reader({ supabase, script, onLeave }: Props) {
     editable: false,
     extensions: [
       StarterKit.configure({ history: false }),
+      Image.configure({ inline: false, allowBase64: true }),
       Collaboration.configure({ document: doc }),
     ],
     immediatelyRender: false,

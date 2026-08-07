@@ -55,6 +55,17 @@ export default function EditorToolbar({ editor }: Props) {
       <Btn active={editor.isActive('orderedList')} onClick={() => editor.chain().focus().toggleOrderedList().run()}>1. List</Btn>
       <Btn active={editor.isActive('blockquote')} onClick={() => editor.chain().focus().toggleBlockquote().run()}>❝</Btn>
       <Btn active={editor.isActive('code')} onClick={() => editor.chain().focus().toggleCode().run()}>{'</>'}</Btn>
+      <span className="mx-1 h-5 w-px bg-white/10" />
+      <Btn
+        onClick={() => {
+          const url = window.prompt('Image URL (or paste a base64 data:image/... string)');
+          if (!url) return;
+          editor.chain().focus().setImage({ src: url.trim() }).run();
+        }}
+        title="Insert image"
+      >
+        🖼 Image
+      </Btn>
     </div>
   );
 }

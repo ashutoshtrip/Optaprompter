@@ -15,8 +15,10 @@
       {
         "label": "prompter",
         "title": "OptaPrompter",
-        "width": 900,
-        "height": 260,
+        "width": 1200,
+        "height": 520,
+        "minWidth": 600,
+        "minHeight": 260,
         "x": 100,
         "y": 80,
         "resizable": true,

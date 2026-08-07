@@ -271,3 +271,10 @@ button {
   overflow-x: auto;
 }
 .ProseMirror ul, .ProseMirror ol { padding-left: 1.4em; }
+.ProseMirror img {
+  max-width: 100%;
+  height: auto;
+  border-radius: 6px;
+  margin: 0.75em 0;
+  display: block;
+}

@@ -5,6 +5,7 @@ import StarterKit from '@tiptap/starter-kit';
 import Collaboration from '@tiptap/extension-collaboration';
 import CollaborationCursor from '@tiptap/extension-collaboration-cursor';
 import Placeholder from '@tiptap/extension-placeholder';
+import Image from '@tiptap/extension-image';
 import * as Y from 'yjs';
 import { Awareness } from 'y-protocols/awareness';
 import { useEffect, useMemo, useState } from 'react';
@@ -77,6 +78,7 @@ export default function EditorClient({ scriptId, roomId, title, user }: Props) {
     extensions: [
       StarterKit.configure({ history: false }),
       Placeholder.configure({ placeholder: 'Start writing the script…' }),
+      Image.configure({ inline: false, allowBase64: true }),
       Collaboration.configure({ document: doc }),
       // CollaborationCursor expects a provider object with an `awareness`
       // field. We wire our own Awareness instance directly. The `as never`
