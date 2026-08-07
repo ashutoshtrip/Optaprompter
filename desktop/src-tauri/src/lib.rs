@@ -102,11 +102,6 @@ fn quit_app(app: tauri::AppHandle) {
     app.exit(0);
 }
 
-#[tauri::command]
-fn quit_app(app: tauri::AppHandle) {
-    app.exit(0);
-}
-
 pub fn run() {
     let state: SharedState = Arc::new(Mutex::new(OverlayState {
         click_through: false,
