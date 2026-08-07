@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import type { SupabaseClient, Session } from '@supabase/supabase-js';
 
 interface Props {
@@ -14,24 +14,35 @@ export default function AuthGate({ supabase, onSignedIn }: Props) {
   const [err, setErr] = useState<string | null>(null);
   const [info, setInfo] = useState<string | null>(null);
 
+  // Defensive: nuke any lingering session when the auth screen mounts.
+  // This is the safety net for "logs in as the previous / default email"
+  // reports — a stale session could otherwise get picked up before we
+  // finish the fresh OTP flow.
+  useEffect(() => {
+    void supabase.auth.signOut().catch(() => {});
+  }, [supabase]);
+
   const sendCode = async (e: React.FormEvent) => {
     e.preventDefault();
     setErr(null);
     setInfo(null);
     setBusy(true);
     try {
+      // Belt & suspenders — clear any session right before we start the flow
+      // so verifyOtp always produces a fresh one for the entered email.
+      await supabase.auth.signOut().catch(() => {});
+
       const { error } = await supabase.auth.signInWithOtp({
         email: email.trim(),
         options: { shouldCreateUser: true },
       });
       if (error) throw error;
       setOtpSent(true);
-      setInfo('Check your email for a 6-digit code.');
+      setInfo(`We emailed a 6-digit code to ${email.trim()}. Paste it below — don't click the link in the email (that signs into the web app in a browser, not this app).`);
     } catch (e) {
-      // eslint-disable-next-line no-console
       console.error('[OptaPrompter auth]', e);
       const msg =
-        (e as { message?: string; error_description?: string; status?: number; code?: string })?.message
+        (e as { message?: string })?.message
         || (e as { error_description?: string })?.error_description
         || JSON.stringify(e);
       const status = (e as { status?: number })?.status;
@@ -53,8 +64,21 @@ export default function AuthGate({ supabase, onSignedIn }: Props) {
         type: 'email',
       });
       if (error) throw error;
-      if (data.session) onSignedIn(data.session);
-      else setErr('No session returned — try again.');
+      if (!data.session) {
+        setErr('No session returned — try again.');
+        return;
+      }
+      // Sanity check — the session we got should be for the email we typed.
+      // If it's not (which would be surprising), signal it clearly instead
+      // of silently signing in as the wrong user.
+      const signedInEmail = data.session.user?.email?.toLowerCase();
+      const requested = email.trim().toLowerCase();
+      if (signedInEmail && signedInEmail !== requested) {
+        setErr(`Signed in as ${signedInEmail}, not ${requested}. Signing out — try again.`);
+        await supabase.auth.signOut().catch(() => {});
+        return;
+      }
+      onSignedIn(data.session);
     } catch (e) {
       setErr(e instanceof Error ? e.message : 'Invalid or expired code');
     } finally {
@@ -68,7 +92,7 @@ export default function AuthGate({ supabase, onSignedIn }: Props) {
         <h2>OptaPrompter</h2>
         <p className="muted">
           {otpSent
-            ? 'Enter the 6-digit code we emailed you.'
+            ? 'Enter the 6-digit code from the email. Paste the code — do NOT click the link (that opens the web app).'
             : "Enter your email — we'll send you a sign-in code."}
         </p>
 
