@@ -93,6 +93,47 @@ export default function EditorClient({ scriptId, roomId, title, user }: Props) {
       }),
     ],
     immediatelyRender: false,
+    // Accept dropped image files and pasted screenshots — insert inline as
+    // base64 data URLs. Bloats the Yjs snapshot but works without any storage
+    // backend; swap to Supabase Storage upload if you outgrow this.
+    editorProps: {
+      handlePaste: (view, event) => {
+        const items = Array.from(event.clipboardData?.items ?? []);
+        const imageItem = items.find((it) => it.type.startsWith('image/'));
+        if (!imageItem) return false;
+        const file = imageItem.getAsFile();
+        if (!file) return false;
+        event.preventDefault();
+        const reader = new FileReader();
+        reader.onload = (ev) => {
+          const src = ev.target?.result as string;
+          const node = view.state.schema.nodes.image?.create({ src });
+          if (node) view.dispatch(view.state.tr.replaceSelectionWith(node));
+        };
+        reader.readAsDataURL(file);
+        return true;
+      },
+      handleDrop: (view, event, _slice, moved) => {
+        if (moved) return false;
+        const files = Array.from(event.dataTransfer?.files ?? []);
+        const images = files.filter((f) => f.type.startsWith('image/'));
+        if (images.length === 0) return false;
+        event.preventDefault();
+        // Insert at the drop position (fall back to selection).
+        const coordinates = view.posAtCoords({ left: event.clientX, top: event.clientY });
+        const pos = coordinates?.pos ?? view.state.selection.from;
+        images.forEach((file) => {
+          const reader = new FileReader();
+          reader.onload = (ev) => {
+            const src = ev.target?.result as string;
+            const node = view.state.schema.nodes.image?.create({ src });
+            if (node) view.dispatch(view.state.tr.insert(pos, node));
+          };
+          reader.readAsDataURL(file);
+        });
+        return true;
+      },
+    },
   }, [doc, awareness, user.id]);
 
   return (
